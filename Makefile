@@ -1,48 +1,18 @@
 ################################################################################
 #
-# Copyright 1993-2015 NVIDIA Corporation.  All rights reserved.
-#
-# NOTICE TO USER:
-#
-# This source code is subject to NVIDIA ownership rights under U.S. and
-# international Copyright laws.
-#
-# NVIDIA MAKES NO REPRESENTATION ABOUT THE SUITABILITY OF THIS SOURCE
-# CODE FOR ANY PURPOSE.  IT IS PROVIDED "AS IS" WITHOUT EXPRESS OR
-# IMPLIED WARRANTY OF ANY KIND.  NVIDIA DISCLAIMS ALL WARRANTIES WITH
-# REGARD TO THIS SOURCE CODE, INCLUDING ALL IMPLIED WARRANTIES OF
-# MERCHANTABILITY, NONINFRINGEMENT, AND FITNESS FOR A PARTICULAR PURPOSE.
-# IN NO EVENT SHALL NVIDIA BE LIABLE FOR ANY SPECIAL, INDIRECT, INCIDENTAL,
-# OR CONSEQUENTIAL DAMAGES, OR ANY DAMAGES WHATSOEVER RESULTING FROM LOSS
-# OF USE, DATA OR PROFITS, WHETHER IN AN ACTION OF CONTRACT, NEGLIGENCE
-# OR OTHER TORTIOUS ACTION, ARISING OUT OF OR IN CONNECTION WITH THE USE
-# OR PERFORMANCE OF THIS SOURCE CODE.
-#
-# U.S. Government End Users.  This source code is a "commercial item" as
-# that term is defined at 48 C.F.R. 2.101 (OCT 1995), consisting  of
-# "commercial computer software" and "commercial computer software
-# documentation" as such terms are used in 48 C.F.R. 12.212 (SEPT 1995)
-# and is provided to the U.S. Government only as a commercial end item.
-# Consistent with 48 C.F.R.12.212 and 48 C.F.R. 227.7202-1 through
-# 227.7202-4 (JUNE 1995), all U.S. Government End Users acquire the
-# source code with only those rights set forth herein.
+# Makefile project only supported on Linux Platforms)
 #
 ################################################################################
-#
-# Makefile project only supported on Mac OS X and Linux Platforms)
-#
-################################################################################
-
+PROJECT := mysgemm
 # Location of the CUDA Toolkit
 CUDA_PATH       ?= /usr/local/cuda
+BUILD_PATH      ?= build
 
 # architecture
 HOST_ARCH   := $(shell uname -m)
 TARGET_ARCH ?= $(HOST_ARCH)
 ifneq (,$(filter $(TARGET_ARCH),x86_64 aarch64 ppc64le))
     TARGET_SIZE := 64
-else ifeq ($(TARGET_ARCH),armv7l)
-    TARGET_SIZE := 32
 else
     $(error ERROR - unsupported value $(TARGET_ARCH) for TARGET_ARCH!)
 endif
@@ -55,39 +25,13 @@ endif
 # operating system
 HOST_OS   := $(shell uname -s 2>/dev/null | tr "[:upper:]" "[:lower:]")
 TARGET_OS ?= $(HOST_OS)
-ifeq (,$(filter $(TARGET_OS),linux darwin qnx android))
+ifeq (,$(filter $(TARGET_OS),linux ))
     $(error ERROR - unsupported value $(TARGET_OS) for TARGET_OS!)
 endif
 
 # host compiler
-ifeq ($(TARGET_OS),darwin)
-    ifeq ($(shell expr `xcodebuild -version | grep -i xcode | awk '{print $$2}' | cut -d'.' -f1` \>= 5),1)
-        HOST_COMPILER ?= clang++
-    endif
-else ifneq ($(TARGET_ARCH),$(HOST_ARCH))
-    ifeq ($(HOST_ARCH)-$(TARGET_ARCH),x86_64-armv7l)
-        ifeq ($(TARGET_OS),linux)
-            HOST_COMPILER ?= arm-linux-gnueabihf-g++
-        else ifeq ($(TARGET_OS),qnx)
-            ifeq ($(QNX_HOST),)
-                $(error ERROR - QNX_HOST must be passed to the QNX host toolchain)
-            endif
-            ifeq ($(QNX_TARGET),)
-                $(error ERROR - QNX_TARGET must be passed to the QNX target toolchain)
-            endif
-            export QNX_HOST
-            export QNX_TARGET
-            HOST_COMPILER ?= $(QNX_HOST)/usr/bin/arm-unknown-nto-qnx6.6.0eabi-g++
-        else ifeq ($(TARGET_OS),android)
-            HOST_COMPILER ?= arm-linux-androideabi-g++
-        endif
-    else ifeq ($(TARGET_ARCH),aarch64)
-        ifeq ($(TARGET_OS), linux)
-            HOST_COMPILER ?= aarch64-linux-gnu-g++
-        else ifeq ($(TARGET_OS), android)
-            HOST_COMPILER ?= aarch64-linux-android-g++
-        endif
-    else ifeq ($(TARGET_ARCH),ppc64le)
+ifneq ($(TARGET_ARCH),$(HOST_ARCH))
+    ifeq ($(TARGET_ARCH),ppc64le)
         HOST_COMPILER ?= powerpc64le-linux-gnu-g++
     endif
 endif
@@ -96,35 +40,8 @@ NVCC          := $(CUDA_PATH)/bin/nvcc -ccbin=$(HOST_COMPILER)
 
 # internal flags
 NVCCFLAGS   := -m${TARGET_SIZE}
-CCFLAGS     := -DNDEBUG -O2 
+CCFLAGS     := -MMD -MP -pthread -fPIC -DNDEBUG -O2 -DUSE_OPENCV 
 LDFLAGS     :=
-
-# build flags
-ifeq ($(TARGET_OS),darwin)
-    LDFLAGS += -rpath $(CUDA_PATH)/lib
-    CCFLAGS += -arch $(HOST_ARCH)
-else ifeq ($(HOST_ARCH)-$(TARGET_ARCH)-$(TARGET_OS),x86_64-armv7l-linux)
-    LDFLAGS += --dynamic-linker=/lib/ld-linux-armhf.so.3
-    CCFLAGS += -mfloat-abi=hard
-else ifeq ($(TARGET_OS),android)
-    LDFLAGS += -pie
-    CCFLAGS += -fpie -fpic -fexceptions
-endif
-
-ifneq ($(TARGET_ARCH),$(HOST_ARCH))
-    ifeq ($(TARGET_ARCH)-$(TARGET_OS),armv7l-linux)
-        ifneq ($(TARGET_FS),)
-            GCCVERSIONLTEQ46 := $(shell expr `$(HOST_COMPILER) -dumpversion` \<= 4.6)
-            ifeq ($(GCCVERSIONLTEQ46),1)
-                CCFLAGS += --sysroot=$(TARGET_FS)
-            endif
-            LDFLAGS += --sysroot=$(TARGET_FS)
-            LDFLAGS += -rpath-link=$(TARGET_FS)/lib
-            LDFLAGS += -rpath-link=$(TARGET_FS)/usr/lib
-            LDFLAGS += -rpath-link=$(TARGET_FS)/usr/lib/arm-linux-gnueabihf
-        endif
-    endif
-endif
 
 # Debug build flags
 ifeq ($(dbg),1)
@@ -135,19 +52,20 @@ else
       BUILD_TYPE := release
 endif
 
-ALL_CCFLAGS :=
-ALL_CCFLAGS += $(NVCCFLAGS)
-ALL_CCFLAGS += $(EXTRA_NVCCFLAGS)
+ALL_NVCCFLAGS += $(NVCCFLAGS) $(EXTRA_NVCCFLAGS)
 ALL_CCFLAGS += $(addprefix -Xcompiler ,$(CCFLAGS))
 ALL_CCFLAGS += $(addprefix -Xcompiler ,$(EXTRA_CCFLAGS))
 
 ALL_LDFLAGS :=
-ALL_LDFLAGS += $(ALL_CCFLAGS)
+ALL_LDFLAGS += $(ALL_CCFLAGS) $(ALL_NVCCFLAGS) 
 ALL_LDFLAGS += $(addprefix -Xlinker ,$(LDFLAGS))
 ALL_LDFLAGS += $(addprefix -Xlinker ,$(EXTRA_LDFLAGS))
 
+SHARE_LDFLAGS := -shared -lc
+SHARE_LDFLAGS += $(addprefix -Xlinker ,$(LDFLAGS))
+SHARE_LDFLAGS += $(addprefix -Xlinker ,$(EXTRA_LDFLAGS))
 # Common includes and paths for CUDA
-#INCLUDES  := -I../../common/inc
+INCLUDES  := -Iinc
 LIBRARIES :=
 
 ################################################################################
@@ -174,6 +92,7 @@ endif
 endif
 
 ALL_CCFLAGS += -dc
+ALL_NVCCFLAGS += -dc
 
 LIBRARIES += -lcublas -lcublas_device -lcudadevrt
 
@@ -181,12 +100,19 @@ ifeq ($(SAMPLE_ENABLED),0)
 EXEC ?= @echo "[@]"
 endif
 
+SRC_PATH := src
+GPU_SRCS += $(wildcard $(SRC_PATH)/*.cu)
+CPU_SRCS += $(wildcard $(SRC_PATH)/*.cpp)
+CPU_OBJS := $(addprefix $(BUILD_PATH)/$(BUILD_TYPE)/, ${CPU_SRCS:.cpp=.o})
+GPU_OBJS := $(addprefix $(BUILD_PATH)/$(BUILD_TYPE)/, ${GPU_SRCS:.cu=.o})
+OBJS := $(CPU_OBJS) $(GPU_OBJS)
 ################################################################################
 
 # Target rules
 all: build
 
-build: simpleDevLibCUBLAS
+build: $(OBJS) | CREATE_BUILD_PATH
+	$(EXEC) $(NVCC) $(SHARE_LDFLAGS) $(GENCODE_FLAGS) -o $(BUILD_PATH)/$(BUILD_TYPE)/$(PROJECT).so $+ $(LIBRARIES)
 
 check.deps:
 ifeq ($(SAMPLE_ENABLED),0)
@@ -195,22 +121,15 @@ else
 	@echo "Sample is ready - all dependencies have been met"
 endif
 
-kernels.o:kernels.cu
-	$(EXEC) $(NVCC) $(INCLUDES) $(ALL_CCFLAGS) $(GENCODE_FLAGS) -o $@ -c $<
+CREATE_BUILD_PATH:
+	$(EXEC) mkdir -p $(BUILD_PATH)/$(BUILD_TYPE)/$(SRC_PATH)/cu
 
-simpleDevLibCUBLAS.o:simpleDevLibCUBLAS.cpp
-	$(EXEC) $(NVCC) $(INCLUDES) $(ALL_CCFLAGS) $(GENCODE_FLAGS) -o $@ -c $<
+$(BUILD_PATH)/$(BUILD_TYPE)/%.o: %.cpp | CREATE_BUILD_PATH
+	$(EXEC) $(HOST_COMPILER) $(INCLUDES) $(CCFLAGS) -o $@ -c $<
 
-simpleDevLibCUBLAS: kernels.o simpleDevLibCUBLAS.o
-	$(EXEC) $(NVCC) $(ALL_LDFLAGS) $(GENCODE_FLAGS) -o $@ $+ $(LIBRARIES)
-#	$(EXEC) mkdir -p ../../bin/$(TARGET_ARCH)/$(TARGET_OS)/$(BUILD_TYPE)
-#	$(EXEC) cp $@ ../../bin/$(TARGET_ARCH)/$(TARGET_OS)/$(BUILD_TYPE)
-
-run: build
-	$(EXEC) ./simpleDevLibCUBLAS
+$(BUILD_PATH)/$(BUILD_TYPE)/%.o: %.cu | CREATE_BUILD_PATH
+	$(EXEC) $(NVCC) $(INCLUDES) $(ALL_NVCCFLAGS) $(GENCODE_FLAGS) -o $@ -c $<
 
 clean:
-	rm -f simpleDevLibCUBLAS kernels.o simpleDevLibCUBLAS.o
-#	rm -rf ../../bin/$(TARGET_ARCH)/$(TARGET_OS)/$(BUILD_TYPE)/simpleDevLibCUBLAS
+	rm -rf $(BUILD_PATH)
 
-clobber: clean
