@@ -3,10 +3,15 @@
 # Makefile project only supported on Linux Platforms)
 #
 ################################################################################
-PROJECT := mysgemm
+PROJECT := libmysgemm
 # Location of the CUDA Toolkit
 CUDA_PATH       ?= /usr/local/cuda
 BUILD_PATH      ?= build
+SRC_PATH := src
+TST_PATH := test
+GPU_SRCS += $(wildcard $(SRC_PATH)/*.cu)
+CPU_SRCS += $(wildcard $(SRC_PATH)/*.cpp)
+TST_SRCS += $(wildcard $(TST_PATH)/*.cpp)
 
 # architecture
 HOST_ARCH   := $(shell uname -m)
@@ -61,13 +66,18 @@ ALL_LDFLAGS += $(ALL_CCFLAGS) $(ALL_NVCCFLAGS)
 ALL_LDFLAGS += $(addprefix -Xlinker ,$(LDFLAGS))
 ALL_LDFLAGS += $(addprefix -Xlinker ,$(EXTRA_LDFLAGS))
 
-SHARE_LDFLAGS := -shared -lc
+SHARE_LDFLAGS := $(addprefix -Xcompiler ,-shared -lc)
+SHARE_LDFLAGS += $(ALL_CCFLAGS)
 SHARE_LDFLAGS += $(addprefix -Xlinker ,$(LDFLAGS))
 SHARE_LDFLAGS += $(addprefix -Xlinker ,$(EXTRA_LDFLAGS))
 # Common includes and paths for CUDA
-INCLUDES  := -Iinc
+INCLUDES  := -Iinc -I$(CUDA_PATH)/include
 LIBRARIES :=
 
+CPU_OBJS := $(addprefix $(BUILD_PATH)/$(BUILD_TYPE)/, ${CPU_SRCS:.cpp=.o})
+TST_OBJS := $(addprefix $(BUILD_PATH)/$(BUILD_TYPE)/, ${TST_SRCS:.cpp=.o})
+GPU_OBJS := $(addprefix $(BUILD_PATH)/$(BUILD_TYPE)/, ${GPU_SRCS:.cu=.o})
+OBJS := $(CPU_OBJS) $(GPU_OBJS)
 ################################################################################
 
 SAMPLE_ENABLED := 1
@@ -100,12 +110,6 @@ ifeq ($(SAMPLE_ENABLED),0)
 EXEC ?= @echo "[@]"
 endif
 
-SRC_PATH := src
-GPU_SRCS += $(wildcard $(SRC_PATH)/*.cu)
-CPU_SRCS += $(wildcard $(SRC_PATH)/*.cpp)
-CPU_OBJS := $(addprefix $(BUILD_PATH)/$(BUILD_TYPE)/, ${CPU_SRCS:.cpp=.o})
-GPU_OBJS := $(addprefix $(BUILD_PATH)/$(BUILD_TYPE)/, ${GPU_SRCS:.cu=.o})
-OBJS := $(CPU_OBJS) $(GPU_OBJS)
 ################################################################################
 
 # Target rules
@@ -122,7 +126,7 @@ else
 endif
 
 CREATE_BUILD_PATH:
-	$(EXEC) mkdir -p $(BUILD_PATH)/$(BUILD_TYPE)/$(SRC_PATH)/cu
+	$(EXEC) mkdir -p $(BUILD_PATH)/$(BUILD_TYPE)/$(SRC_PATH) $(BUILD_PATH)/$(BUILD_TYPE)/$(TST_PATH)
 
 $(BUILD_PATH)/$(BUILD_TYPE)/%.o: %.cpp | CREATE_BUILD_PATH
 	$(EXEC) $(HOST_COMPILER) $(INCLUDES) $(CCFLAGS) -o $@ -c $<
@@ -130,6 +134,12 @@ $(BUILD_PATH)/$(BUILD_TYPE)/%.o: %.cpp | CREATE_BUILD_PATH
 $(BUILD_PATH)/$(BUILD_TYPE)/%.o: %.cu | CREATE_BUILD_PATH
 	$(EXEC) $(NVCC) $(INCLUDES) $(ALL_NVCCFLAGS) $(GENCODE_FLAGS) -o $@ -c $<
 
+$(BUILD_PATH)/$(BUILD_TYPE)/%.o: %.cpp | CREATE_BUILD_PATH
+	$(EXEC) $(HOST_COMPILER) $(INCLUDES) $(CCFLAGS) -o $@ -c $<
+
+test: $(TST_OBJS) | build
+	$(EXEC) $(NVCC) $(ALL_LDFLAGS) $(GENCODE_FLAGS) -o $(BUILD_PATH)/$(BUILD_TYPE)/$@$(PROJECT) $+ $(LIBRARIES) -L$(BUILD_PATH)/$(BUILD_TYPE) -lmysgemm
+
 clean:
-	rm -rf $(BUILD_PATH)
+	$(EXEC) rm -rf $(BUILD_PATH)
 

@@ -28,6 +28,7 @@
 #include <math.h>
 
 /* Host implementation of a simple version of sgemm */
+extern "C"
 void simple_sgemm(int n, float alpha, const float *A, const float *B,
                          float beta, float *C)
 {
@@ -52,6 +53,7 @@ void simple_sgemm(int n, float alpha, const float *A, const float *B,
 }
 
 /* Checks result against reference and returns relative error */
+extern "C"
 float check_result(const float *result,
                           const float *reference,
                           int size)
