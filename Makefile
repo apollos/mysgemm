@@ -45,7 +45,7 @@ NVCC          := $(CUDA_PATH)/bin/nvcc -ccbin=$(HOST_COMPILER)
 
 # internal flags
 NVCCFLAGS   := -m${TARGET_SIZE}
-CCFLAGS     := -MMD -MP -pthread -fPIC -DNDEBUG -O2 -DUSE_OPENCV 
+CCFLAGS     := -fPIC #-MMD -MP -pthread -fPIC -DNDEBUG -O2 -DUSE_OPENCV 
 LDFLAGS     :=
 
 # Debug build flags
@@ -57,12 +57,13 @@ else
       BUILD_TYPE := release
 endif
 
-ALL_NVCCFLAGS += $(NVCCFLAGS) $(EXTRA_NVCCFLAGS)
+ALL_CCFLAGS += $(NVCCFLAGS)
+ALL_CCFLAGS += $(EXTRA_NVCCFLAGS)
 ALL_CCFLAGS += $(addprefix -Xcompiler ,$(CCFLAGS))
 ALL_CCFLAGS += $(addprefix -Xcompiler ,$(EXTRA_CCFLAGS))
 
 ALL_LDFLAGS :=
-ALL_LDFLAGS += $(ALL_CCFLAGS) $(ALL_NVCCFLAGS) 
+ALL_LDFLAGS += $(ALL_CCFLAGS) 
 ALL_LDFLAGS += $(addprefix -Xlinker ,$(LDFLAGS))
 ALL_LDFLAGS += $(addprefix -Xlinker ,$(EXTRA_LDFLAGS))
 
@@ -83,7 +84,7 @@ OBJS := $(CPU_OBJS) $(GPU_OBJS)
 SAMPLE_ENABLED := 1
 
 # Gencode arguments
-SMS ?= 50 
+SMS ?= 35 37 50 52
 
 ifeq ($(SMS),)
 $(info >>> WARNING - no SM architectures have been specified - waiving sample <<<)
@@ -102,8 +103,6 @@ endif
 endif
 
 ALL_CCFLAGS += -dc
-ALL_NVCCFLAGS += -dc
-
 LIBRARIES += -lcublas -lcublas_device -lcudadevrt
 
 ifeq ($(SAMPLE_ENABLED),0)
@@ -129,16 +128,15 @@ CREATE_BUILD_PATH:
 	$(EXEC) mkdir -p $(BUILD_PATH)/$(BUILD_TYPE)/$(SRC_PATH) $(BUILD_PATH)/$(BUILD_TYPE)/$(TST_PATH)
 
 $(BUILD_PATH)/$(BUILD_TYPE)/%.o: %.cpp | CREATE_BUILD_PATH
-	$(EXEC) $(HOST_COMPILER) $(INCLUDES) $(CCFLAGS) -o $@ -c $<
+#	$(EXEC) $(HOST_COMPILER) $(INCLUDES) $(CCFLAGS) -o $@ -c $<
+	$(EXEC) $(NVCC) $(INCLUDES) $(ALL_CCFLAGS) $(GENCODE_FLAGS) -o $@ -c $<
 
 $(BUILD_PATH)/$(BUILD_TYPE)/%.o: %.cu | CREATE_BUILD_PATH
-	$(EXEC) $(NVCC) $(INCLUDES) $(ALL_NVCCFLAGS) $(GENCODE_FLAGS) -o $@ -c $<
+	$(EXEC) $(NVCC) $(INCLUDES) $(ALL_CCFLAGS) $(GENCODE_FLAGS) -o $@ -c $<
 
-$(BUILD_PATH)/$(BUILD_TYPE)/%.o: %.cpp | CREATE_BUILD_PATH
-	$(EXEC) $(HOST_COMPILER) $(INCLUDES) $(CCFLAGS) -o $@ -c $<
-
-test: $(TST_OBJS) | build
-	$(EXEC) $(NVCC) $(ALL_LDFLAGS) $(GENCODE_FLAGS) -o $(BUILD_PATH)/$(BUILD_TYPE)/$@$(PROJECT) $+ $(LIBRARIES) -L$(BUILD_PATH)/$(BUILD_TYPE) -lmysgemm
+test: $(TST_OBJS)| build
+	$(EXEC) $(NVCC) $(ALL_LDFLAGS) $(GENCODE_FLAGS) -o $(BUILD_PATH)/$(BUILD_TYPE)/$@$(PROJECT) $+ $(LIBRARIES) -L./$(BUILD_PATH)/$(BUILD_TYPE) -lmysgemm
+#	$(EXEC) $(NVCC) $(ALL_LDFLAGS) $(GENCODE_FLAGS) -o $(BUILD_PATH)/$(BUILD_TYPE)/$@$(PROJECT) $+ $(LIBRARIES) 
 
 clean:
 	$(EXEC) rm -rf $(BUILD_PATH)
